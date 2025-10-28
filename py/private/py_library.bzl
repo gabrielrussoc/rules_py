@@ -155,13 +155,52 @@ def _make_imports_depset(ctx, imports = [], extra_imports_depsets = []):
         ] + extra_imports_depsets,
     )
 
+def _normalize_path_component(component):
+    """Replace hyphens with underscores in a path component."""
+    return component.replace("-", "_")
+
+def _create_normalized_symlinks_map(files):
+    """Create a symlinks dict for files with hyphens in their paths.
+    
+    Maps from normalized path (with underscores) to the original file object.
+    This allows Python to import modules from directories with hyphens.
+    """
+    symlinks = {}
+    
+    for f in files:
+        # Only process Python files
+        if not f.path.endswith(".py"):
+            continue
+            
+        # Get the short_path (path in runfiles)
+        short_path = f.short_path
+        
+        # Check if the path contains hyphens
+        if "-" not in short_path:
+            continue
+            
+        # Normalize the path by replacing hyphens with underscores
+        path_parts = short_path.split("/")
+        normalized_parts = [_normalize_path_component(part) for part in path_parts]
+        normalized_path = "/".join(normalized_parts)
+        
+        # Add to symlinks map: normalized path -> original file
+        symlinks[normalized_path] = f
+    
+    return symlinks
+
 def _make_merged_runfiles(ctx, extra_depsets = [], extra_runfiles = [], extra_runfiles_depsets = []):
     runfiles_targets = getattr(ctx.attr, "deps", []) + getattr(ctx.attr, "data", [])
+    
+    # Create symlinks for files with hyphens in their paths
+    normalized_symlinks = _create_normalized_symlinks_map(extra_runfiles)
+    
     runfiles = ctx.runfiles(
         files = getattr(ctx.files, "data", []) + extra_runfiles,
         transitive_files = depset(
             transitive = extra_depsets,
         ),
+        symlinks = normalized_symlinks,
     )
 
     runfiles = runfiles.merge_all([
